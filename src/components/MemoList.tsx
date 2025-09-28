@@ -6,6 +6,9 @@ interface Props {
 memos: Memo[];
 onDelete: (id: number) => void;
 onEdit: (memo: Memo) => void;
+editingMemo: Memo | null; 
+  onCancelEdit: () => void; 
+  onSave: (title: string, content: string, category: string) => void
 }
 
 

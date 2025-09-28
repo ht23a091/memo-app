@@ -1,74 +1,86 @@
-import { useState, useEffect } from 'react';
-
+import { useEffect, useState } from 'react';
+import type { Memo } from '../App';
 
 interface Props {
-onAdd: (title: string, content: string, category: string) => void;
-editingMemo: {
-id: number;
-title: string;
-content: string;
-category: string;
-} | null;
-onCancelEdit: () => void;
+  selectedMemo: Memo | null;
+  onUpdate: (updated: Memo) => void;
+  onDelete?: (id: number) => void; // optional
 }
 
+const MemoInput = ({ selectedMemo, onUpdate, onDelete }: Props) => {
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
 
-const MemoInput = ({ onAdd, editingMemo, onCancelEdit }: Props) => {
-const [title, setTitle] = useState('');
-const [content, setContent] = useState('');
-const [category, setCategory] = useState('');
+  useEffect(() => {
+    if (selectedMemo) {
+      setTitle(selectedMemo.title);
+      setContent(selectedMemo.content);
+    } else {
+      setTitle('');
+      setContent('');
+    }
+  }, [selectedMemo]);
 
+ 
+  const handleBlur = () => {
+    if (selectedMemo) {
+      onUpdate({ ...selectedMemo, title, content });
+    }
+  };
 
-useEffect(() => {
-if (editingMemo) {
-setTitle(editingMemo.title);
-setContent(editingMemo.content);
-setCategory(editingMemo.category);
-} else {
-setTitle('');
-setContent('');
-setCategory('');
-}
-}, [editingMemo]);
+  if (!selectedMemo) {
+    return <div>メモを選択してください。</div>;
+  }
 
+  return (
+    <div style={{ padding: '1rem', maxWidth: 900 }}>
+      <input
+        type="text"
+        value={title}
+        placeholder="タイトルを入力"
+        onChange={(e) => setTitle(e.target.value)}
+        onBlur={handleBlur}
+        style={{
+          fontSize: '1.5rem',
+          fontWeight: '600',
+          border: 'none',
+          width: '100%',
+          outline: 'none',
+          padding: '6px 8px',
+          borderRadius: 6,
+          background: '#fff'
+        }}
+      />
+      <textarea
+        value={content}
+        placeholder="メモを入力..."
+        onChange={(e) => setContent(e.target.value)}
+        onBlur={handleBlur}
+        style={{
+          width: '100%',
+          height: '60vh',
+          border: 'none',
+          marginTop: '1rem',
+          resize: 'none',
+          outline: 'none',
+          padding: '12px',
+          borderRadius: 6,
+          background: '#fff'
+        }}
+      />
 
-const handleSubmit = (e: React.FormEvent) => {
-e.preventDefault();
-if (!title.trim() && !content.trim()) return;
-onAdd(title, content, category);
-setTitle('');
-setContent('');
-setCategory('');
+      {onDelete && (
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={() => { if (selectedMemo) { if (confirm('このメモを削除しますか？')) onDelete(selectedMemo.id); } }}
+            style={{ background: '#e53935', color: '#fff', border: 'none', padding: '8px 12px', borderRadius: 6 }}
+          >
+            🗑 メモを削除
+          </button>
+        </div>
+      )}
+    </div>
+  );
 };
-
-
-return (
-<form onSubmit={handleSubmit} style={{ marginBottom: '1rem' }}>
-<input
-type="text"
-placeholder="タイトル"
-value={title}
-onChange={(e) => setTitle(e.target.value)}
-style={{ display: 'block', marginBottom: '0.5rem', width: '100%' }}
-/>
-<textarea
-placeholder="メモの内容"
-value={content}
-onChange={(e) => setContent(e.target.value)}
-style={{ display: 'block', marginBottom: '0.5rem', width: '100%' }}
-/>
-<input
-type="text"
-placeholder="カテゴリ (任意)"
-value={category}
-onChange={(e) => setCategory(e.target.value)}
-style={{ display: 'block', marginBottom: '0.5rem', width: '100%' }}
-/>
-<button type="submit">{editingMemo ? '更新' : '追加'}</button>
-{editingMemo && <button type="button" onClick={onCancelEdit}>キャンセル</button>}
-</form>
-);
-};
-
 
 export default MemoInput;
