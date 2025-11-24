@@ -1,3 +1,4 @@
+// src/App.tsx
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import MemoInput from './components/MemoInput';
@@ -9,7 +10,9 @@ export interface Memo {
   category: string;
   pinned?: boolean;
 }
-type SavingStatus = 'saved' | 'saving';
+
+export type CategoryFilter = '__ALL__' | '__UNCATEGORIZED__' | string;
+
 type WithDeletedAt = Memo & { deletedAt: number };
 
 const LS = {
@@ -20,7 +23,22 @@ const LS = {
   trash: 'trash',
 } as const;
 
-const label = (c: string) => (c ? c : '未分類');
+const SIDEBAR_WIDTH = 320;
+
+function uniqById<T extends { id: number }>(arr: T[]): T[] {
+  const seen = new Set<number>();
+  const out: T[] = [];
+  for (const item of arr) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+}
+
+// 新規メモ用に CategoryFilter から実際の category 文字列を決める
+const resolveCategoryForNewMemo = (filter: CategoryFilter): string =>
+  filter === '__ALL__' || filter === '__UNCATEGORIZED__' ? '' : filter;
 
 function App() {
   // 初期復元
@@ -28,16 +46,27 @@ function App() {
     try {
       const s = localStorage.getItem(LS.memos);
       const loaded: Memo[] = s ? JSON.parse(s) : [];
-      return loaded.length ? loaded : [{ id: Date.now(), title: '', content: '', category: '', pinned: false }];
+      const base = loaded.length
+        ? loaded
+        : [{ id: Date.now(), title: '', content: '', category: '', pinned: false }];
+      return uniqById(base);
     } catch {
       return [{ id: Date.now(), title: '', content: '', category: '', pinned: false }];
     }
   });
-  const [selectedCategory, setSelectedCategory] = useState<string>(() => localStorage.getItem(LS.selectedCategory) ?? '');
+
+  const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>(() => {
+    const stored = localStorage.getItem(LS.selectedCategory);
+    if (!stored || stored === '') return '__ALL__';
+    if (stored === '__UNCATEGORIZED__') return '__UNCATEGORIZED__';
+    return stored;
+  });
+
   const [selectedMemoId, setSelectedMemoId] = useState<number | null>(() => {
     const sid = localStorage.getItem(LS.selectedMemoId);
     return sid ? parseInt(sid, 10) : null;
   });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
     try {
@@ -47,49 +76,59 @@ function App() {
       return [];
     }
   });
+
   const [trash, setTrash] = useState<WithDeletedAt[]>(() => {
     try {
       const s = localStorage.getItem(LS.trash);
-      return s ? JSON.parse(s) : [];
+      const loaded: WithDeletedAt[] = s ? JSON.parse(s) : [];
+      return uniqById(loaded);
     } catch {
       return [];
     }
   });
-  const [isTrashView, setIsTrashView] = useState(false);
-  const [saving, setSaving] = useState<SavingStatus>('saved');
 
-  // 初期選択
+  const [isTrashView, setIsTrashView] = useState(false);
+
+  // サイドバー開閉
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((v) => !v);
+  }, []);
+
+  // 選択補完
   useEffect(() => {
     if (selectedMemoId == null && memos.length > 0) setSelectedMemoId(memos[0].id);
   }, [selectedMemoId, memos]);
 
-  // 通常保存＋インジケータ
+  // 保存
   useEffect(() => {
-    setSaving('saving');
-    const t = setTimeout(() => setSaving('saved'), 500);
-    localStorage.setItem(LS.memos, JSON.stringify(memos));
+    const safeMemos = uniqById(memos);
+    const safeTrash = uniqById(trash);
+
+    localStorage.setItem(LS.memos, JSON.stringify(safeMemos));
     if (selectedMemoId != null) localStorage.setItem(LS.selectedMemoId, String(selectedMemoId));
     localStorage.setItem(LS.selectedCategory, selectedCategory);
     localStorage.setItem(LS.customCategories, JSON.stringify(customCategories));
-    localStorage.setItem(LS.trash, JSON.stringify(trash));
-    return () => clearTimeout(t);
+    localStorage.setItem(LS.trash, JSON.stringify(safeTrash));
   }, [memos, selectedMemoId, selectedCategory, customCategories, trash]);
 
   // 退出前バックアップ
   useEffect(() => {
     const backup = () => {
       try {
-        localStorage.setItem(LS.memos, JSON.stringify(memos));
+        localStorage.setItem(LS.memos, JSON.stringify(uniqById(memos)));
         if (selectedMemoId != null) localStorage.setItem(LS.selectedMemoId, String(selectedMemoId));
         localStorage.setItem(LS.selectedCategory, selectedCategory);
         localStorage.setItem(LS.customCategories, JSON.stringify(customCategories));
-        localStorage.setItem(LS.trash, JSON.stringify(trash));
+        localStorage.setItem(LS.trash, JSON.stringify(uniqById(trash)));
       } catch (e) {
         console.warn('Backup save failed:', e);
       }
     };
     const beforeUnloadHandler = () => backup();
-    const visibilityHandler = () => { if (document.visibilityState === 'hidden') backup(); };
+    const visibilityHandler = () => {
+      if (document.visibilityState === 'hidden') backup();
+    };
     window.addEventListener('beforeunload', beforeUnloadHandler);
     document.addEventListener('visibilitychange', visibilityHandler);
     return () => {
@@ -98,53 +137,75 @@ function App() {
     };
   }, [memos, selectedMemoId, selectedCategory, customCategories, trash]);
 
-  // CRUD
   const handleAddMemo = useCallback(() => {
-    const newMemo: Memo = { id: Date.now(), title: '', content: '', category: selectedCategory, pinned: false };
-    setMemos(prev => [newMemo, ...prev]);
-    setSelectedMemoId(newMemo.id);
+    let id = Date.now();
+    const ids = new Set(memos.map((m) => m.id));
+    while (ids.has(id)) id++;
+
+    const category = resolveCategoryForNewMemo(selectedCategory);
+    const newMemo: Memo = { id, title: '', content: '', category, pinned: false };
+    setMemos((prev) => uniqById([newMemo, ...prev]));
+    setSelectedMemoId(id);
     setIsTrashView(false);
-  }, [selectedCategory]);
+  }, [selectedCategory, memos]);
 
   const handleUpdate = useCallback((updated: Memo) => {
-    setMemos(prev => prev.map(m => (m.id === updated.id ? updated : m)));
+    setMemos((prev) => uniqById(prev.map((m) => (m.id === updated.id ? updated : m))));
   }, []);
 
   const handleTogglePin = useCallback((id: number) => {
-    setMemos(prev => prev.map(m => (m.id === id ? { ...m, pinned: !m.pinned } : m)));
+    setMemos((prev) =>
+      uniqById(prev.map((m) => (m.id === id ? { ...m, pinned: !m.pinned } : m))),
+    );
   }, []);
 
-  const handleTrash = useCallback((id: number) => {
-    setMemos(prev => {
-      const target = prev.find(m => m.id === id);
-      const next = prev.filter(m => m.id !== id);
-      if (target) setTrash(t => [{ ...target, deletedAt: Date.now() }, ...t]);
-      if (next.length === 0) {
-        const fresh: Memo = { id: Date.now(), title: '', content: '', category: selectedCategory, pinned: false };
-        setSelectedMemoId(fresh.id);
-        return [fresh];
-      }
-      if (selectedMemoId === id) setSelectedMemoId(next[0].id);
-      return next;
-    });
-  }, [selectedCategory, selectedMemoId]);
+  const handleTrash = useCallback(
+    (id: number) => {
+      setMemos((prev) => {
+        const target = prev.find((m) => m.id === id);
+        const next = prev.filter((m) => m.id !== id);
+
+        if (target) {
+          setTrash((t) => {
+            const entry: WithDeletedAt = { ...target, deletedAt: Date.now() };
+            return uniqById([entry, ...t.filter((x) => x.id !== target.id)]);
+          });
+        }
+
+        if (next.length === 0) {
+          let nid = Date.now();
+          const ids = new Set(prev.map((m) => m.id));
+          while (ids.has(nid)) nid++;
+          const category = resolveCategoryForNewMemo(selectedCategory);
+          const fresh: Memo = { id: nid, title: '', content: '', category, pinned: false };
+          setSelectedMemoId(fresh.id);
+          return [fresh];
+        }
+        if (selectedMemoId === id) setSelectedMemoId(next[0].id);
+        return uniqById(next);
+      });
+    },
+    [selectedCategory, selectedMemoId],
+  );
 
   const handleRestore = useCallback((id: number) => {
-    setTrash(prevTrash => {
-      const target = prevTrash.find(m => m.id === id);
-      const nextTrash = prevTrash.filter(m => m.id !== id);
+    setTrash((prevTrash) => {
+      const target = prevTrash.find((m) => m.id === id);
+      const nextTrash = prevTrash.filter((m) => m.id !== id);
       if (target) {
-        setMemos(prev => [{ ...target }, ...prev]);
+        setMemos((prev) =>
+          uniqById([{ ...target }, ...prev.filter((m) => m.id !== target.id)]),
+        );
         setSelectedMemoId(target.id);
         setIsTrashView(false);
       }
-      return nextTrash;
+      return uniqById(nextTrash);
     });
   }, []);
 
   const handleDeleteForever = useCallback((id: number) => {
     if (!confirm('このメモを完全に削除します。元に戻せません。よろしいですか？')) return;
-    setTrash(prev => prev.filter(m => m.id !== id));
+    setTrash((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
   const handleEmptyTrash = useCallback(() => {
@@ -156,53 +217,42 @@ function App() {
   const handleAddCategory = useCallback((name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setCustomCategories(prev => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    setCustomCategories((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
   }, []);
 
-  // ★ カテゴリ並び替え（ドラッグ）
-  const handleReorderCategory = useCallback((fromIndex: number, toIndex: number) => {
-    setCustomCategories(prev => {
-      const arr = [...prev];
-      const [moved] = arr.splice(fromIndex, 1);
-      arr.splice(toIndex, 0, moved);
-      return arr;
-    });
-  }, []);
-
-  // ★ カテゴリ削除（再割当あり）
+  // カテゴリ削除（そのカテゴリのメモは「カテゴリなし」に移動）
   const handleDeleteCategory = useCallback((name: string) => {
-    if (!name) return; // ''（未分類）は削除不可
-    const affected = memos.filter(m => m.category === name).length;
+    if (!name) return;
 
-    // 未分類へ移動 OK?
-    const okToUnassign = confirm(
-      `カテゴリ「${name}」を削除します。\nこのカテゴリに属するメモは ${affected} 件あります。未分類（${label('')}）に移動してよろしいですか？\n\n「キャンセル」を選ぶと、移動先カテゴリを指定できます。`
+    const ok = confirm(
+      `カテゴリ「${name}」を削除します。\n` +
+        `カテゴリ内のメモは「カテゴリなし」（メモ一覧）に移動します。`,
+    );
+    if (!ok) return;
+
+    setMemos((prev) =>
+      prev.map((m) => (m.category === name ? { ...m, category: '' } : m)),
     );
 
-    let target = '';
-    if (!okToUnassign) {
-      const choices = ['', ...customCategories.filter(c => c !== name)];
-      const display = choices.map(label).join(' / ');
-      const input = prompt(`移動先カテゴリ名を入力してください（候補: ${display}）`, '');
-      if (input != null && choices.map(label).includes(input)) {
-        // 入力はラベル名（未分類 or 実名）の可能性があるので逆変換
-        target = input === '未分類' ? '' : input;
-      } else {
-        // 不正入力は未分類へ
-        target = '';
-      }
-    }
+    setCustomCategories((prev) => prev.filter((c) => c !== name));
 
-    // 実処理：メモの再割当 → カスタムカテゴリから削除 → 現在選択の調整
-    setMemos(prev => prev.map(m => (m.category === name ? { ...m, category: target } : m)));
-    setCustomCategories(prev => prev.filter(c => c !== name));
-    if (selectedCategory === name) setSelectedCategory(target);
-  }, [customCategories, memos, selectedCategory]);
+    setSelectedCategory((prev) => (prev === name ? '__ALL__' : prev));
+  }, []);
+
+  // メモをドラッグ＆ドロップでカテゴリ移動
+  const handleMoveMemoToCategory = useCallback((id: number, category: string) => {
+    setMemos((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, category } : m)),
+    );
+    setSelectedCategory(category || '__ALL__');
+    setSelectedMemoId(id);
+    setIsTrashView(false);
+  }, []);
 
   // 表示用：カテゴリ一覧＆件数
   const categories = useMemo(() => {
-    const fromMemos = Array.from(new Set(memos.map(m => m.category).filter(Boolean)));
-    const extras = customCategories.filter(c => !fromMemos.includes(c));
+    const fromMemos = Array.from(new Set(memos.map((m) => m.category).filter(Boolean)));
+    const extras = customCategories.filter((c) => !fromMemos.includes(c));
     return [...fromMemos, ...extras];
   }, [memos, customCategories]);
 
@@ -215,92 +265,98 @@ function App() {
     return map;
   }, [memos]);
 
-  // フィルタ & 並び順
-  const filteredMemos = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const list = memos.filter(m => {
-      const matchCategory = selectedCategory ? m.category === selectedCategory : true;
-      const matchQuery = q ? (m.title.toLowerCase().includes(q) || m.content.toLowerCase().includes(q)) : true;
-      return matchCategory && matchQuery;
-    });
-    return list.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.id - a.id);
-  }, [memos, selectedCategory, searchQuery]);
-
-  const selectedMemo = useMemo(() => memos.find(m => m.id === selectedMemoId) ?? null, [memos, selectedMemoId]);
+  const selectedMemo = useMemo(
+    () => memos.find((m) => m.id === selectedMemoId) ?? null,
+    [memos, selectedMemoId],
+  );
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, sans-serif' }}>
-      <Sidebar
-        currentCategory={selectedCategory}
-        categories={categories}
-        categoryCounts={categoryCounts}
-        customCategories={customCategories}
-        memos={isTrashView ? [] : filteredMemos}
-        trash={trash}
-        isTrashView={isTrashView}
-        onToggleTrashView={() => setIsTrashView(v => !v)}
-        onSelectCategory={setSelectedCategory}
-        onSelectMemo={(id) => { setSelectedMemoId(id); setIsTrashView(false); }}
-        onAddMemo={handleAddMemo}
-        onTrash={handleTrash}
-        onRestore={handleRestore}
-        onDeleteForever={handleDeleteForever}
-        onEmptyTrash={handleEmptyTrash}
-        onTogglePin={handleTogglePin}
-        searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
-        onAddCategory={handleAddCategory}
-        // ★ 追加
-        onReorderCategory={handleReorderCategory}
-        onDeleteCategory={handleDeleteCategory}
-      />
+    <div
+      style={{
+        display: 'flex',
+        height: '100vh',
+        fontFamily: 'system-ui, sans-serif',
+        position: 'relative',
+      }}
+    >
+      {!sidebarOpen && (
+        <button
+          onClick={toggleSidebar}
+          style={{
+            position: 'fixed',
+            top: 8,
+            left: 8,
+            padding: '4px 10px',
+            borderRadius: 6,
+            border: '1px solid #ccc',
+            background: '#fff',
+            cursor: 'pointer',
+            zIndex: 1100,
+          }}
+        >
+          ≡
+        </button>
+      )}
+      <div
+        style={{
+          width: sidebarOpen ? SIDEBAR_WIDTH : 0,
+          transition: 'width 0.25s ease',
+          overflow: 'hidden',
+          borderRight: sidebarOpen ? '1px solid #e6e6e6' : 'none',
+          background: '#f7f7f8',
+          boxSizing: 'border-box',
+          zIndex: 1000,
+        }}
+      >
+        <Sidebar
+          isOpen={sidebarOpen}
+          currentCategory={selectedCategory}
+          categories={categories}
+          categoryCounts={categoryCounts}
+          memos={isTrashView ? [] : memos}
+          trash={trash}
+          isTrashView={isTrashView}
+          onToggleTrashView={() => setIsTrashView((v) => !v)}
+          onSelectCategory={setSelectedCategory}
+          onSelectMemo={(id) => {
+            setSelectedMemoId(id);
+            setIsTrashView(false);
+          }}
+          onAddMemo={handleAddMemo}
+          onTrash={handleTrash}
+          onRestore={handleRestore}
+          onDeleteForever={handleDeleteForever}
+          onTogglePin={handleTogglePin}
+          onEmptyTrash={handleEmptyTrash}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          onAddCategory={handleAddCategory}
+          onDeleteCategory={handleDeleteCategory}
+          onMoveMemoToCategory={handleMoveMemoToCategory}
+          onToggleSidebar={toggleSidebar} 
+        />
+      </div>
+      <div
+        style={{
+          flex: 1,
+          padding: '1rem',
+          paddingTop: '2rem',
+          overflowY: 'auto',
+          position: 'relative',
+        }}
+      >
+        <h1 style={{ margin: 0 }}>メモアプリ</h1>
 
-      <div style={{ flex: 1, padding: '1rem', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-          <h1 style={{ margin: 0 }}>📝 メモアプリ</h1>
-          <div aria-live="polite" style={{ fontSize: 12, color: saving === 'saved' ? '#1a7f37' : '#555' }}>
-            {saving === 'saved' ? '💾 Saved' : '⏳ Saving…'}
-          </div>
-        </div>
-
-        {!isTrashView && selectedMemo && (
+        {selectedMemo && (
           <MemoInput
             selectedMemo={selectedMemo}
             categories={['', ...categories]}
             onUpdate={handleUpdate}
             onTrash={handleTrash}
             onTogglePin={handleTogglePin}
+            onAddCategory={handleAddCategory}
+            onAddMemo={handleAddMemo}
           />
-        )}
-
-        {isTrashView && (
-          <div style={{ marginTop: 16 }}>
-            <h2 style={{ marginTop: 0 }}>🗑️ ゴミ箱</h2>
-            {trash.length === 0 ? (
-              <div style={{ color: '#888' }}>ゴミ箱は空です。</div>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {trash.map(item => (
-                  <div key={item.id} style={{ border: '1px solid #eee', borderRadius: 10, padding: 10, background: '#fff' }}>
-                    <div style={{ fontWeight: 600 }}>{item.title || '(タイトルなし)'}</div>
-                    <div style={{ fontSize: 12, color: '#666', margin: '4px 0' }}>{label(item.category)}</div>
-                    <div style={{ fontSize: 12, color: '#999' }}>削除日時: {new Date(item.deletedAt).toLocaleString()}</div>
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                      <button onClick={() => handleRestore(item.id)} style={{ padding: '6px 10px', borderRadius: 8, cursor: 'pointer' }}>復元</button>
-                      <button onClick={() => handleDeleteForever(item.id)} style={{ padding: '6px 10px', borderRadius: 8, cursor: 'pointer', background: '#ffecec', border: '1px solid #f1c0c0', color: '#b50000' }}>完全削除</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {trash.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <button onClick={handleEmptyTrash} style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', background: '#fff3cd', border: '1px solid #ffe69c' }}>
-                  ゴミ箱を空にする
-                </button>
-              </div>
-            )}
-          </div>
         )}
       </div>
     </div>
