@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react';
+// src/components/Sidebar.tsx
+import { useMemo, useState, useEffect } from 'react';
+import type React from 'react';
 import type { Memo } from '../App';
-
-type TrashItem = (Memo & { deletedAt: number });
+import MemoList from './MemoList';
+import TrashList from './TrashList';
+import type { TrashItem } from './TrashList';
 
 interface Props {
+  isOpen: boolean;
   currentCategory: string;
   categories: string[];
-  categoryCounts: Map<string, number>; // ''=未分類
-  customCategories: string[];          // 並び替え対象
+  categoryCounts: Map<string, number>;
   memos: Memo[];
-  trash: TrashItem[];                  // 件数表示のみ
+  trash: TrashItem[];
   isTrashView: boolean;
   onToggleTrashView: () => void;
 
@@ -17,33 +20,32 @@ interface Props {
   onSelectMemo: (id: number) => void;
   onAddMemo: () => void;
   onTrash: (id: number) => void;
-  onRestore: (id: number) => void;        // ← 型は維持（親から渡ってくる）
-  onDeleteForever: (id: number) => void;  // ← 型は維持
+  onRestore: (id: number) => void;
+  onDeleteForever: (id: number) => void;
   onTogglePin: (id: number) => void;
+  onEmptyTrash: () => void;
 
   searchQuery: string;
   onSearchQueryChange: (q: string) => void;
+
   onAddCategory?: (name: string) => void;
+  onDeleteCategory?: (name: string) => void;
 
-  onReorderCategory: (fromIndex: number, toIndex: number) => void;
-  onDeleteCategory: (name: string) => void;
+  onToggleSidebar: () => void;
 }
 
-const label = (c: string) => (c ? c : '未分類');
+const label = (c: string) => (c ? c : 'カテゴリなし');
 
-declare global {
-  interface Window {
-    __sidebarManageVal?: boolean; // 管理モードの簡易永続用
-  }
-}
+const truncateTitle = (title: string | undefined) => {
+  const base = title && title.trim().length > 0 ? title : '(タイトルなし)';
+  return base.length > 20 ? base.slice(0, 20) + '…' : base;
+};
 
 const Sidebar = (props: Props) => {
-  // ★ 未使用の onRestore / onDeleteForever は分割代入しない
   const {
-    currentCategory,
+    isOpen,
     categories,
     categoryCounts,
-    customCategories,
     memos,
     trash,
     isTrashView,
@@ -52,288 +54,361 @@ const Sidebar = (props: Props) => {
     onSelectMemo,
     onAddMemo,
     onTrash,
+    onRestore,
+    onDeleteForever,
     onTogglePin,
+    onEmptyTrash,
     searchQuery,
     onSearchQueryChange,
     onAddCategory,
-    onReorderCategory,
     onDeleteCategory,
+    onToggleSidebar,
   } = props;
+
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
+  const [categorySectionOpen, setCategorySectionOpen] = useState(true);
+
+  const [isMobileLayout, setIsMobileLayout] = useState(window.innerWidth <= 480);
+
+  useEffect(() => {
+    const handler = () => setIsMobileLayout(window.innerWidth <= 480);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
+  const closeSidebarIfMobile = () => {
+    if (window.innerWidth <= 768) {
+      onToggleSidebar();
+    }
+  };
 
   const handleAddCategory = () => {
     const name = window.prompt('追加するカテゴリ名');
     if (!name) return;
-    onAddCategory?.(name);
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onAddCategory?.(trimmed);
   };
 
-  // 管理モード（boolean）
-  const [manage, setManage] = useState<boolean>(() => window.__sidebarManageVal ?? false);
-  useEffect(() => {
-    window.__sidebarManageVal = manage;
-  }, [manage]);
+  const searchedMemos = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return memos
+      .filter((m) =>
+        q ? m.title.toLowerCase().includes(q) || m.content.toLowerCase().includes(q) : true,
+      )
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.id - a.id);
+  }, [memos, searchQuery]);
 
-  // DnD handlers（カテゴリ並び替え）
-  const onDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
-    e.dataTransfer.setData('text/plain', String(index));
-  };
-  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
-  const onDrop = (e: React.DragEvent<HTMLDivElement>, toIndex: number) => {
-    e.preventDefault();
-    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
-    if (Number.isNaN(fromIndex) || fromIndex === toIndex) return;
-    onReorderCategory(fromIndex, toIndex);
-  };
+  const memosByCategory = useMemo(() => {
+    const map = new Map<string, Memo[]>();
+    for (const m of searchedMemos) {
+      const key = m.category || '';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(m);
+    }
+    for (const [, list] of map) {
+      list.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.id - a.id);
+    }
+    return map;
+  }, [searchedMemos]);
+
+  const allCategoryKeys = useMemo(
+    () => categories.filter((c) => c !== ''),
+    [categories],
+  );
 
   const count = (c: string) => categoryCounts.get(c) ?? 0;
+
+  const toggleCategory = (name: string) => {
+    setOpenCategories((prev) => ({ ...prev, [name]: !prev[name] }));
+    onSelectCategory(name);
+  };
+
+  const handleMemoDragStart = (e: React.DragEvent<HTMLElement>, id: number) => {
+    e.dataTransfer.setData('text/plain', `memo:${id}`);
+  };
+
+  const handleCategoryDragStart = (e: React.DragEvent<HTMLElement>, name: string) => {
+    if (!name) return;
+    e.dataTransfer.setData('text/plain', `category:${name}`);
+  };
+
+  const handleTrashDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleTrashDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const data = e.dataTransfer.getData('text/plain');
+    if (!data) return;
+
+    if (data.startsWith('memo:')) {
+      const id = Number(data.slice(5));
+      if (!Number.isNaN(id)) {
+        onTrash(id);
+      }
+    } else if (data.startsWith('category:')) {
+      const name = data.slice(9);
+      if (name && onDeleteCategory) {
+        onDeleteCategory(name);
+      }
+    }
+  };
 
   return (
     <aside
       style={{
-        width: 320,
+        position: 'fixed',
+        top: 0,
+        left: isOpen ? 0 : isMobileLayout ? '-110%' : -320,
+        height: '100vh',
+        width: isMobileLayout ? '100%' : 320,
+        transition: 'left 0.25s ease',
         background: '#f7f7f8',
         padding: '1rem',
         borderRight: '1px solid #e6e6e6',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        zIndex: 1000,
         overflowY: 'auto',
       }}
     >
-      {!isTrashView && (
-        <div style={{ marginBottom: 8, fontSize: 12, color: '#555' }}>
-          現在のカテゴリ：
-          <span
-            style={{
-              marginLeft: 6,
-              padding: '2px 8px',
-              borderRadius: 999,
-              background: '#fff',
-              border: '1px solid #ddd',
-            }}
-          >
-            {label(currentCategory)}
-          </span>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        <button onClick={onAddMemo} style={{ padding: '6px 10px', borderRadius: 8, cursor: 'pointer' }}>
-          ＋ 新規メモ（{label(currentCategory)}）
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          marginBottom: 8,
+        }}
+      >
+        <button
+          onClick={onToggleSidebar}
+          style={{
+            padding: '4px 8px',
+            borderRadius: 9999,
+            border: '1px solid #ccc',
+            background: '#fff',
+            cursor: 'pointer',
+          }}
+        >
+          ×
         </button>
-        <button onClick={handleAddCategory} style={{ padding: '6px 10px', borderRadius: 8, cursor: 'pointer' }}>
-          ＋ カテゴリ
+
+        <button
+          onClick={onAddMemo}
+          style={{ padding: '6px 10px', borderRadius: 8 }}
+        >
+          +新規メモ
+        </button>
+        <button
+          onClick={handleAddCategory}
+          style={{ padding: '6px 10px', borderRadius: 8 }}
+        >
+          +新規カテゴリ
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-        <button
-          onClick={onToggleTrashView}
-          style={{
-            padding: '6px 10px',
-            borderRadius: 8,
-            cursor: 'pointer',
-            background: isTrashView ? '#fff' : '#ffffffa8',
-            border: '1px solid #ddd',
-          }}
-        >
-          {isTrashView ? '← メモ一覧へ' : `🗑️ ゴミ箱（${trash.length}）`}
-        </button>
-        <button
-          onClick={() => setManage(!manage)}
-          style={{
-            padding: '6px 10px',
-            borderRadius: 8,
-            cursor: 'pointer',
-            background: manage ? '#e7f1ff' : '#fff',
-            border: '1px solid #cfe2ff',
-          }}
-          title="カテゴリの並び替え・削除"
-        >
-          🛠 カテゴリ管理 {manage ? 'ON' : 'OFF'}
-        </button>
-      </div>
-
-      {/* 通常ビュー */}
-      {!isTrashView && !manage && (
-        <>
-          <div style={{ marginBottom: 10 }}>
-            <input
-              value={searchQuery}
-              onChange={(e) => onSearchQueryChange(e.target.value)}
-              placeholder="検索（タイトル/本文）"
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd' }}
-            />
-          </div>
-
-          {/* カテゴリ選択（件数付き） */}
-          <div style={{ marginBottom: 10 }}>
-            <select
-              value={currentCategory}
-              onChange={(e) => onSelectCategory(e.target.value)}
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd' }}
-            >
-              <option value="">（すべてのカテゴリ）</option>
-              <option value="">{`未分類（${count('')}）`}</option>
-              {categories.map((c, i) => (
-                <option key={`${c}-${i}`} value={c}>
-                  {`${label(c)}（${count(c)}）`}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* メモ一覧（長文でもボタンは潰れない） */}
-          <div>
-            {memos.length === 0 ? (
-              <div style={{ color: '#999', fontSize: 13 }}>このカテゴリにはメモがありません。</div>
-            ) : (
-              memos.map((m) => (
-                <div
-                  key={m.id}
-                  style={{
-                    padding: 10,
-                    borderRadius: 10,
-                    background: '#fff',
-                    border: '1px solid #eaeaea',
-                    marginBottom: 8,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                    }}
-                  >
-                    <div
-                      onClick={() => onSelectMemo(m.id)}
-                      style={{ cursor: 'pointer', flex: 1, minWidth: 0 }}
-                    >
-                      <div
-                        style={{
-                          fontWeight: 600,
-                          fontSize: 14,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {m.title || '(タイトルなし)'}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: '#666',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {m.content || '（内容なし）'}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#999' }}>
-                        <span
-                          style={{
-                            padding: '1px 6px',
-                            borderRadius: 999,
-                            background: '#f0f0f0',
-                            border: '1px solid #e5e5e5',
-                          }}
-                        >
-                          {label(m.category)}
-                        </span>
-                        {m.pinned ? <span style={{ marginLeft: 6 }}>📌</span> : null}
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      <button
-                        onClick={() => onTogglePin(m.id)}
-                        title={m.pinned ? 'ピン解除' : 'ピン留め'}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: 6,
-                          border: '1px solid #ddd',
-                          background: m.pinned ? '#fff7d1' : '#fff',
-                        }}
-                      >
-                        📌
-                      </button>
-                      <button
-                        onClick={() => onTrash(m.id)}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: 6,
-                          border: '1px solid #f1c0c0',
-                          background: '#ffecec',
-                          color: '#b50000',
-                        }}
-                      >
-                        削除
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </>
-      )}
-
-   
-
-      {/* 管理モード：ドラッグで並び替え & 削除（カスタムカテゴリのみ） */}
-      {!isTrashView && manage && (
-        <div>
-          <div style={{ marginBottom: 8, color: '#555' }}>
-            ドラッグして順序変更／🗑で削除（未分類は対象外）
-          </div>
-          {customCategories.length === 0 && (
-            <div style={{ color: '#999', fontSize: 13 }}>カスタムカテゴリがありません。</div>
-          )}
-          <div style={{ display: 'grid', gap: 6 }}>
-            {customCategories.map((c, i) => (
-              <div
-                key={`${c}-${i}`}
-                draggable
-                onDragStart={(e) => onDragStart(e, i)}
-                onDragOver={onDragOver}
-                onDrop={(e) => onDrop(e, i)}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {isTrashView ? (
+          <TrashList
+            items={trash}
+            onRestore={onRestore}
+            onDeleteForever={onDeleteForever}
+          />
+        ) : (
+          <>
+            <section style={{ marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>検索</div>
+              <input
+                value={searchQuery}
+                onChange={(e) => onSearchQueryChange(e.target.value)}
+                placeholder="検索"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  width: '100%',
                   padding: '8px 10px',
                   borderRadius: 8,
-                  background: '#fff',
-                  border: '1px solid #e5e5e5',
-                  cursor: 'grab',
+                  border: '1px solid #ddd',
+                  marginTop: 4,
                 }}
-                title="ドラッグで並び替え"
+              />
+            </section>
+
+            <section style={{ marginBottom: 16 }}>
+              <div
+                onClick={() => setCategorySectionOpen((v) => !v)}
+                style={{
+                  fontWeight: 600,
+                  fontSize: 14,
+                  marginBottom: 6,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 18, lineHeight: 1 }}>⠿</span>
-                  <span>{label(c)}</span>
-                  <span style={{ fontSize: 12, color: '#888' }}>（{count(c)}）</span>
-                </div>
-                <button
-                  onClick={() => onDeleteCategory(c)}
-                  style={{
-                    padding: '4px 8px',
-                    borderRadius: 6,
-                    border: '1px solid #f1c0c0',
-                    background: '#ffecec',
-                    color: '#b50000',
-                  }}
-                  title="カテゴリを削除"
-                >
-                  🗑
-                </button>
+                カテゴリ {categorySectionOpen ? '▼' : '▶'}
               </div>
-            ))}
-          </div>
+
+              {categorySectionOpen && (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {allCategoryKeys.map((c) => {
+                    const isOpenCat = !!openCategories[c];
+                    const catMemos = memosByCategory.get(c) ?? [];
+
+                    return (
+                      <div
+                        key={c}
+                        style={{
+                          borderRadius: 8,
+                          border: '1px solid #e0e0e0',
+                          padding: 6,
+                          background: '#fff',
+                        }}
+                        draggable
+                        onDragStart={(e) => handleCategoryDragStart(e, c)}
+                      >
+                        <button
+                          onClick={() => toggleCategory(c)}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            textAlign: 'left',
+                          }}
+                        >
+                          <span>
+                            {isOpenCat ? '▼ ' : '▶ '}
+                            {label(c)}
+                          </span>
+                          <span style={{ fontSize: 12, color: '#666' }}>
+                            ({count(c)})
+                          </span>
+                        </button>
+
+                        {isOpenCat && catMemos.length > 0 && (
+                          <div
+                            style={{
+                              marginTop: 4,
+                              paddingLeft: 14,
+                              display: 'grid',
+                              gap: 2,
+                            }}
+                          >
+                            {catMemos.map((m) => (
+                              <button
+                                key={m.id}
+                                onClick={() => {
+                                  onSelectMemo(m.id);
+                                  closeSidebarIfMobile();
+                                }}
+                                draggable
+                                onDragStart={(e) => handleMemoDragStart(e, m.id)}
+                                style={{
+                                  textAlign: 'left',
+                                  border: 'none',
+                                  background: '#f8f9fa',
+                                  borderRadius: 6,
+                                  padding: '4px 6px',
+                                  cursor: 'pointer',
+                                  fontSize: 12,
+                                  width: '100%',
+                                }}
+                              >
+                                {truncateTitle(m.title)}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {isOpenCat && catMemos.length === 0 && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: '#999',
+                              marginTop: 4,
+                              paddingLeft: 14,
+                            }}
+                          >
+                            メモはありません
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            <section>
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: 14,
+                  marginBottom: 6,
+                }}
+              >
+                メモ一覧
+              </div>
+
+              <MemoList
+                memos={searchedMemos}
+                onSelectMemo={(id) => {
+                  onSelectMemo(id);
+                  closeSidebarIfMobile();
+                }}
+                onTogglePin={onTogglePin}
+                onTrash={onTrash}
+                onMemoDragStart={handleMemoDragStart}
+              />
+            </section>
+          </>
+        )}
+      </div>
+
+      <div
+        onDragOver={handleTrashDragOver}
+        onDrop={handleTrashDrop}
+        style={{
+          marginTop: 4,
+          padding: '8px 10px',
+          borderRadius: 8,
+          border: '1px solid #ddd',
+          background: '#fff',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}
+      >
+        <div>ゴミ箱 ({trash.length})</div>
+        <button
+          onClick={onToggleTrashView}
+          style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #ddd' }}
+        >
+          {isTrashView ? 'メモ一覧を表示' : 'ゴミ箱を表示'}
+        </button>
+        {isTrashView && trash.length > 0 && (
+          <button
+            onClick={onEmptyTrash}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 6,
+              border: '1px solid #ffe69c',
+              background: '#fff8e1',
+            }}
+          >
+            ゴミ箱を空にする
+          </button>
+        )}
+        <div style={{ fontSize: 11, color: '#777' }}>
+          メモやカテゴリをここへドラッグすると削除できます
         </div>
-      )}
+      </div>
     </aside>
   );
 };
