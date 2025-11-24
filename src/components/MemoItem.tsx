@@ -1,46 +1,85 @@
+// src/components/MemoItem.tsx
+import type React from 'react';
 import type { Memo } from '../App';
 
-interface Props {
+interface MemoItemProps {
   memo: Memo;
-  onDelete: (id: number) => void;
-  onEdit: (memo: Memo) => void; 
+  onSelect: (id: number) => void;
+  onTogglePin: (id: number) => void;
+  onTrash: (id: number) => void;
+  onDragStart?: (e: React.DragEvent<HTMLElement>, id: number) => void;
 }
 
-const MemoItem = ({ memo, onDelete, onEdit }: Props) => {
-  const handleDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.setData('text/plain', String(memo.id));
-    // optional: show drag image or effect
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
+const MemoItem = ({
+  memo,
+  onSelect,
+  onTogglePin,
+  onTrash,
+  onDragStart,
+}: MemoItemProps) => {
   return (
     <div
       draggable
-      onDragStart={handleDragStart}
-      onClick={() => onEdit(memo)}
+      onDragStart={(e) => onDragStart?.(e, memo.id)}
       style={{
-        border: '1px solid #e0e0e0',
-        padding: '0.6rem',
-        marginBottom: '0.5rem',
-        borderRadius: 8,
         background: '#fff',
-        cursor: 'pointer',
-        boxShadow: '0 1px 0 rgba(0,0,0,0.03)'
+        borderRadius: 8,
+        padding: '8px 10px',
+        border: '1px solid #ddd',
+        marginBottom: 6,
+        cursor: 'grab',
       }}
     >
-      <div style={{ fontWeight: 600 }}>{memo.title || '(タイトルなし)'}</div>
-      <div style={{ fontSize: 13, color: '#666', marginTop: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      <div
+        onClick={() => onSelect(memo.id)}
+        style={{
+          fontWeight: 600,
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {memo.title || '(タイトルなし)'}
+      </div>
+
+      <div
+        style={{
+          fontSize: 12,
+          color: '#666',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          marginTop: 2,
+        }}
+      >
         {memo.content || '（内容なし）'}
       </div>
-      <div style={{ marginTop: 6, fontSize: 12, color: '#999' }}>
-        {memo.category ? `📁 ${memo.category}` : 'カテゴリなし'}
-      </div>
-      <div style={{ marginTop: 8 }}>
+
+      <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
         <button
-          onClick={(e) => { e.stopPropagation(); onDelete(memo.id); }}
-          style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: 'none', background: '#f44336', color: '#fff', cursor: 'pointer' }}
+          onClick={() => onTogglePin(memo.id)}
+          style={{
+            padding: '4px 8px',
+            borderRadius: 6,
+            border: '1px solid #ddd',
+            background: memo.pinned ? '#fff7d1' : '#fff',
+          }}
+          title={memo.pinned ? 'ピンを外す' : 'ピン留め'}
         >
-          🗑 削除
+          📌
+        </button>
+        <button
+          onClick={() => onTrash(memo.id)}
+          style={{
+            padding: '4px 8px',
+            borderRadius: 6,
+            border: '1px solid #f1c0c0',
+            background: '#ffecec',
+            color: '#b50000',
+          }}
+        >
+          削除
         </button>
       </div>
     </div>
