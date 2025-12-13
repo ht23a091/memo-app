@@ -8,7 +8,7 @@ interface Props {
   onTrash: (id: number) => void;
   onTogglePin: (id: number) => void;
   onAddCategory?: (name: string) => void;
-  onAddMemo: () => void; 
+  onAddMemo: () => void;
 }
 
 const MemoInput = ({
@@ -38,27 +38,47 @@ const MemoInput = ({
 
   useEffect(() => {
     if (!selectedMemo) return;
+
     const tid = setTimeout(() => {
-      onUpdate({ ...selectedMemo, title, content, category });
+      onUpdate({
+        ...selectedMemo,
+        title,
+        content,
+        category,
+      });
     }, 400);
+
     return () => clearTimeout(tid);
   }, [title, content, category, selectedMemo, onUpdate]);
 
   const handleBlur = () => {
-    if (selectedMemo) onUpdate({ ...selectedMemo, title, content, category });
+    if (!selectedMemo) return;
+
+    onUpdate({
+      ...selectedMemo,
+      title,
+      content,
+      category,
+    });
   };
 
   const handleAddCategoryHere = () => {
     const name = window.prompt('追加するカテゴリ名');
     if (!name) return;
+
     const trimmed = name.trim();
     if (!trimmed) return;
 
     onAddCategory?.(trimmed);
-
     setCategory(trimmed);
+
     if (selectedMemo) {
-      onUpdate({ ...selectedMemo, title, content, category: trimmed });
+      onUpdate({
+        ...selectedMemo,
+        title,
+        content,
+        category: trimmed,
+      });
     }
   };
 
@@ -102,6 +122,7 @@ const MemoInput = ({
           ゴミ箱へ
         </button>
       </div>
+
       <div
         style={{
           display: 'flex',
@@ -127,6 +148,7 @@ const MemoInput = ({
 
         <button
           onClick={handleAddCategoryHere}
+          title="カテゴリを追加"
           style={{
             padding: '6px 12px',
             borderRadius: 8,
@@ -135,7 +157,6 @@ const MemoInput = ({
             cursor: 'pointer',
             fontSize: 14,
           }}
-          title="カテゴリを追加"
         >
           カテゴリ
         </button>

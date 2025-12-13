@@ -56,19 +56,26 @@ const MemoItem = ({
         {memo.content || '（内容なし）'}
       </div>
 
-      <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
+      <div
+        style={{
+          marginTop: 6,
+          display: 'flex',
+          gap: 6,
+        }}
+      >
         <button
           onClick={() => onTogglePin(memo.id)}
+          title={memo.pinned ? 'ピンを外す' : 'ピン留め'}
           style={{
             padding: '4px 8px',
             borderRadius: 6,
             border: '1px solid #ddd',
             background: memo.pinned ? '#fff7d1' : '#fff',
           }}
-          title={memo.pinned ? 'ピンを外す' : 'ピン留め'}
         >
           📌
         </button>
+
         <button
           onClick={() => onTrash(memo.id)}
           style={{

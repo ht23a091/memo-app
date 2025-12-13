@@ -1,7 +1,7 @@
 // src/App.tsx
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import Sidebar from './components/Sidebar';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import MemoInput from './components/MemoInput';
+import Sidebar from './components/Sidebar';
 
 export interface Memo {
   id: number;
@@ -28,30 +28,34 @@ const SIDEBAR_WIDTH = 320;
 function uniqById<T extends { id: number }>(arr: T[]): T[] {
   const seen = new Set<number>();
   const out: T[] = [];
+
   for (const item of arr) {
     if (seen.has(item.id)) continue;
     seen.add(item.id);
     out.push(item);
   }
+
   return out;
 }
 
-// 新規メモ用に CategoryFilter から実際の category 文字列を決める
 const resolveCategoryForNewMemo = (filter: CategoryFilter): string =>
   filter === '__ALL__' || filter === '__UNCATEGORIZED__' ? '' : filter;
 
 function App() {
-  // 初期復元
   const [memos, setMemos] = useState<Memo[]>(() => {
     try {
       const s = localStorage.getItem(LS.memos);
       const loaded: Memo[] = s ? JSON.parse(s) : [];
+
       const base = loaded.length
         ? loaded
         : [{ id: Date.now(), title: '', content: '', category: '', pinned: false }];
+
       return uniqById(base);
     } catch {
-      return [{ id: Date.now(), title: '', content: '', category: '', pinned: false }];
+      return [
+        { id: Date.now(), title: '', content: '', category: '', pinned: false },
+      ];
     }
   });
 
@@ -68,6 +72,7 @@ function App() {
   });
 
   const [searchQuery, setSearchQuery] = useState('');
+
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
     try {
       const s = localStorage.getItem(LS.customCategories);
@@ -89,35 +94,42 @@ function App() {
 
   const [isTrashView, setIsTrashView] = useState(false);
 
-  // サイドバー開閉
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((v) => !v);
   }, []);
 
-  // 選択補完
   useEffect(() => {
-    if (selectedMemoId == null && memos.length > 0) setSelectedMemoId(memos[0].id);
+    if (selectedMemoId == null && memos.length > 0) {
+      setSelectedMemoId(memos[0].id);
+    }
   }, [selectedMemoId, memos]);
 
-  // 保存
   useEffect(() => {
     const safeMemos = uniqById(memos);
     const safeTrash = uniqById(trash);
 
     localStorage.setItem(LS.memos, JSON.stringify(safeMemos));
-    if (selectedMemoId != null) localStorage.setItem(LS.selectedMemoId, String(selectedMemoId));
+
+    if (selectedMemoId != null) {
+      localStorage.setItem(LS.selectedMemoId, String(selectedMemoId));
+    }
+
     localStorage.setItem(LS.selectedCategory, selectedCategory);
     localStorage.setItem(LS.customCategories, JSON.stringify(customCategories));
     localStorage.setItem(LS.trash, JSON.stringify(safeTrash));
   }, [memos, selectedMemoId, selectedCategory, customCategories, trash]);
 
-  // 退出前バックアップ
   useEffect(() => {
     const backup = () => {
       try {
         localStorage.setItem(LS.memos, JSON.stringify(uniqById(memos)));
-        if (selectedMemoId != null) localStorage.setItem(LS.selectedMemoId, String(selectedMemoId));
+
+        if (selectedMemoId != null) {
+          localStorage.setItem(LS.selectedMemoId, String(selectedMemoId));
+        }
+
         localStorage.setItem(LS.selectedCategory, selectedCategory);
         localStorage.setItem(LS.customCategories, JSON.stringify(customCategories));
         localStorage.setItem(LS.trash, JSON.stringify(uniqById(trash)));
@@ -125,12 +137,16 @@ function App() {
         console.warn('Backup save failed:', e);
       }
     };
+
     const beforeUnloadHandler = () => backup();
+
     const visibilityHandler = () => {
       if (document.visibilityState === 'hidden') backup();
     };
+
     window.addEventListener('beforeunload', beforeUnloadHandler);
     document.addEventListener('visibilitychange', visibilityHandler);
+
     return () => {
       window.removeEventListener('beforeunload', beforeUnloadHandler);
       document.removeEventListener('visibilitychange', visibilityHandler);
@@ -144,13 +160,16 @@ function App() {
 
     const category = resolveCategoryForNewMemo(selectedCategory);
     const newMemo: Memo = { id, title: '', content: '', category, pinned: false };
+
     setMemos((prev) => uniqById([newMemo, ...prev]));
     setSelectedMemoId(id);
     setIsTrashView(false);
   }, [selectedCategory, memos]);
 
   const handleUpdate = useCallback((updated: Memo) => {
-    setMemos((prev) => uniqById(prev.map((m) => (m.id === updated.id ? updated : m))));
+    setMemos((prev) =>
+      uniqById(prev.map((m) => (m.id === updated.id ? updated : m))),
+    );
   }, []);
 
   const handleTogglePin = useCallback((id: number) => {
@@ -176,12 +195,24 @@ function App() {
           let nid = Date.now();
           const ids = new Set(prev.map((m) => m.id));
           while (ids.has(nid)) nid++;
+
           const category = resolveCategoryForNewMemo(selectedCategory);
-          const fresh: Memo = { id: nid, title: '', content: '', category, pinned: false };
+          const fresh: Memo = {
+            id: nid,
+            title: '',
+            content: '',
+            category,
+            pinned: false,
+          };
+
           setSelectedMemoId(fresh.id);
           return [fresh];
         }
-        if (selectedMemoId === id) setSelectedMemoId(next[0].id);
+
+        if (selectedMemoId === id) {
+          setSelectedMemoId(next[0].id);
+        }
+
         return uniqById(next);
       });
     },
@@ -192,6 +223,7 @@ function App() {
     setTrash((prevTrash) => {
       const target = prevTrash.find((m) => m.id === id);
       const nextTrash = prevTrash.filter((m) => m.id !== id);
+
       if (target) {
         setMemos((prev) =>
           uniqById([{ ...target }, ...prev.filter((m) => m.id !== target.id)]),
@@ -199,12 +231,15 @@ function App() {
         setSelectedMemoId(target.id);
         setIsTrashView(false);
       }
+
       return uniqById(nextTrash);
     });
   }, []);
 
   const handleDeleteForever = useCallback((id: number) => {
-    if (!confirm('このメモを完全に削除します。元に戻せません。よろしいですか？')) return;
+    if (!confirm('このメモを完全に削除します。元に戻せません。よろしいですか？')) {
+      return;
+    }
     setTrash((prev) => prev.filter((m) => m.id !== id));
   }, []);
 
@@ -213,14 +248,15 @@ function App() {
     setTrash([]);
   }, []);
 
-  // カテゴリ追加
   const handleAddCategory = useCallback((name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setCustomCategories((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+
+    setCustomCategories((prev) =>
+      prev.includes(trimmed) ? prev : [...prev, trimmed],
+    );
   }, []);
 
-  // カテゴリ削除（そのカテゴリのメモは「カテゴリなし」に移動）
   const handleDeleteCategory = useCallback((name: string) => {
     if (!name) return;
 
@@ -239,29 +275,32 @@ function App() {
     setSelectedCategory((prev) => (prev === name ? '__ALL__' : prev));
   }, []);
 
-  // メモをドラッグ＆ドロップでカテゴリ移動
-  const handleMoveMemoToCategory = useCallback((id: number, category: string) => {
-    setMemos((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, category } : m)),
-    );
-    setSelectedCategory(category || '__ALL__');
-    setSelectedMemoId(id);
-    setIsTrashView(false);
-  }, []);
+  const handleMoveMemoToCategory = useCallback(
+    (id: number, category: string) => {
+      setMemos((prev) => prev.map((m) => (m.id === id ? { ...m, category } : m)));
+      setSelectedCategory(category || '__ALL__');
+      setSelectedMemoId(id);
+      setIsTrashView(false);
+    },
+    [],
+  );
 
-  // 表示用：カテゴリ一覧＆件数
   const categories = useMemo(() => {
-    const fromMemos = Array.from(new Set(memos.map((m) => m.category).filter(Boolean)));
+    const fromMemos = Array.from(
+      new Set(memos.map((m) => m.category).filter(Boolean)),
+    );
     const extras = customCategories.filter((c) => !fromMemos.includes(c));
     return [...fromMemos, ...extras];
   }, [memos, customCategories]);
 
   const categoryCounts = useMemo(() => {
     const map = new Map<string, number>();
+
     for (const m of memos) {
       const key = m.category || '';
       map.set(key, (map.get(key) ?? 0) + 1);
     }
+
     return map;
   }, [memos]);
 
@@ -297,6 +336,7 @@ function App() {
           ≡
         </button>
       )}
+
       <div
         style={{
           width: sidebarOpen ? SIDEBAR_WIDTH : 0,
@@ -333,9 +373,10 @@ function App() {
           onAddCategory={handleAddCategory}
           onDeleteCategory={handleDeleteCategory}
           onMoveMemoToCategory={handleMoveMemoToCategory}
-          onToggleSidebar={toggleSidebar} 
+          onToggleSidebar={toggleSidebar}
         />
       </div>
+
       <div
         style={{
           flex: 1,

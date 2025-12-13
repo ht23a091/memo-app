@@ -1,5 +1,5 @@
 // src/components/Sidebar.tsx
-import { useMemo, useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type React from 'react';
 import type { Memo } from '../App';
 import MemoList from './MemoList';
@@ -32,13 +32,15 @@ interface Props {
   onDeleteCategory?: (name: string) => void;
 
   onToggleSidebar: () => void;
+
+  onMoveMemoToCategory: (id: number, newCategory: string) => void;
 }
 
 const label = (c: string) => (c ? c : 'カテゴリなし');
 
 const truncateTitle = (title: string | undefined) => {
   const base = title && title.trim().length > 0 ? title : '(タイトルなし)';
-  return base.length > 20 ? base.slice(0, 20) + '…' : base;
+  return base.length > 20 ? `${base.slice(0, 20)}…` : base;
 };
 
 const Sidebar = (props: Props) => {
@@ -63,12 +65,17 @@ const Sidebar = (props: Props) => {
     onAddCategory,
     onDeleteCategory,
     onToggleSidebar,
+    onMoveMemoToCategory,
   } = props;
 
-  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>(
+    {},
+  );
   const [categorySectionOpen, setCategorySectionOpen] = useState(true);
 
-  const [isMobileLayout, setIsMobileLayout] = useState(window.innerWidth <= 480);
+  const [isMobileLayout, setIsMobileLayout] = useState(
+    window.innerWidth <= 480,
+  );
 
   useEffect(() => {
     const handler = () => setIsMobileLayout(window.innerWidth <= 480);
@@ -85,30 +92,39 @@ const Sidebar = (props: Props) => {
   const handleAddCategory = () => {
     const name = window.prompt('追加するカテゴリ名');
     if (!name) return;
+
     const trimmed = name.trim();
     if (!trimmed) return;
+
     onAddCategory?.(trimmed);
   };
 
   const searchedMemos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+
     return memos
       .filter((m) =>
-        q ? m.title.toLowerCase().includes(q) || m.content.toLowerCase().includes(q) : true,
+        q
+          ? m.title.toLowerCase().includes(q) ||
+            m.content.toLowerCase().includes(q)
+          : true,
       )
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.id - a.id);
   }, [memos, searchQuery]);
 
   const memosByCategory = useMemo(() => {
     const map = new Map<string, Memo[]>();
+
     for (const m of searchedMemos) {
       const key = m.category || '';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(m);
     }
+
     for (const [, list] of map) {
       list.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.id - a.id);
     }
+
     return map;
   }, [searchedMemos]);
 
@@ -128,7 +144,10 @@ const Sidebar = (props: Props) => {
     e.dataTransfer.setData('text/plain', `memo:${id}`);
   };
 
-  const handleCategoryDragStart = (e: React.DragEvent<HTMLElement>, name: string) => {
+  const handleCategoryDragStart = (
+    e: React.DragEvent<HTMLElement>,
+    name: string,
+  ) => {
     if (!name) return;
     e.dataTransfer.setData('text/plain', `category:${name}`);
   };
@@ -139,18 +158,35 @@ const Sidebar = (props: Props) => {
 
   const handleTrashDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+
+    const data = e.dataTransfer.getData('text/plain');
+    if (!data) return;
+
+    if (data.startsWith('memo:')) {
+      const id = Number(data.slice(5));
+      if (!Number.isNaN(id)) onTrash(id);
+      return;
+    }
+
+    if (data.startsWith('category:')) {
+      const name = data.slice(9);
+      if (name && onDeleteCategory) onDeleteCategory(name);
+    }
+  };
+
+  const handleCategoryDrop = (
+    e: React.DragEvent<HTMLDivElement>,
+    categoryName: string,
+  ) => {
+    e.preventDefault();
+
     const data = e.dataTransfer.getData('text/plain');
     if (!data) return;
 
     if (data.startsWith('memo:')) {
       const id = Number(data.slice(5));
       if (!Number.isNaN(id)) {
-        onTrash(id);
-      }
-    } else if (data.startsWith('category:')) {
-      const name = data.slice(9);
-      if (name && onDeleteCategory) {
-        onDeleteCategory(name);
+        onMoveMemoToCategory(id, categoryName);
       }
     }
   };
@@ -199,13 +235,20 @@ const Sidebar = (props: Props) => {
 
         <button
           onClick={onAddMemo}
-          style={{ padding: '6px 10px', borderRadius: 8 }}
+          style={{
+            padding: '6px 10px',
+            borderRadius: 8,
+          }}
         >
           +新規メモ
         </button>
+
         <button
           onClick={handleAddCategory}
-          style={{ padding: '6px 10px', borderRadius: 8 }}
+          style={{
+            padding: '6px 10px',
+            borderRadius: 8,
+          }}
         >
           +新規カテゴリ
         </button>
@@ -259,14 +302,16 @@ const Sidebar = (props: Props) => {
                     return (
                       <div
                         key={c}
+                        draggable
+                        onDragStart={(e) => handleCategoryDragStart(e, c)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => handleCategoryDrop(e, c)}
                         style={{
                           borderRadius: 8,
                           border: '1px solid #e0e0e0',
                           padding: 6,
                           background: '#fff',
                         }}
-                        draggable
-                        onDragStart={(e) => handleCategoryDragStart(e, c)}
                       >
                         <button
                           onClick={() => toggleCategory(c)}
@@ -303,12 +348,12 @@ const Sidebar = (props: Props) => {
                             {catMemos.map((m) => (
                               <button
                                 key={m.id}
+                                draggable
+                                onDragStart={(e) => handleMemoDragStart(e, m.id)}
                                 onClick={() => {
                                   onSelectMemo(m.id);
                                   closeSidebarIfMobile();
                                 }}
-                                draggable
-                                onDragStart={(e) => handleMemoDragStart(e, m.id)}
                                 style={{
                                   textAlign: 'left',
                                   border: 'none',
@@ -346,13 +391,7 @@ const Sidebar = (props: Props) => {
             </section>
 
             <section>
-              <div
-                style={{
-                  fontWeight: 600,
-                  fontSize: 14,
-                  marginBottom: 6,
-                }}
-              >
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>
                 メモ一覧
               </div>
 
@@ -386,12 +425,18 @@ const Sidebar = (props: Props) => {
         }}
       >
         <div>ゴミ箱 ({trash.length})</div>
+
         <button
           onClick={onToggleTrashView}
-          style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #ddd' }}
+          style={{
+            padding: '4px 8px',
+            borderRadius: 6,
+            border: '1px solid #ddd',
+          }}
         >
           {isTrashView ? 'メモ一覧を表示' : 'ゴミ箱を表示'}
         </button>
+
         {isTrashView && trash.length > 0 && (
           <button
             onClick={onEmptyTrash}
@@ -405,6 +450,7 @@ const Sidebar = (props: Props) => {
             ゴミ箱を空にする
           </button>
         )}
+
         <div style={{ fontSize: 11, color: '#777' }}>
           メモやカテゴリをここへドラッグすると削除できます
         </div>

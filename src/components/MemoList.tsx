@@ -17,11 +17,7 @@ const MemoList: React.FC<Props> = ({
   onMemoDragStart,
 }) => {
   if (memos.length === 0) {
-    return (
-      <div style={{ fontSize: 12, color: '#777' }}>
-        メモはありません
-      </div>
-    );
+    return <div style={{ fontSize: 12, color: '#777' }}>メモはありません</div>;
   }
 
   const labelCategory = (c: string) => (c ? c : 'カテゴリなし');
@@ -31,6 +27,8 @@ const MemoList: React.FC<Props> = ({
       {memos.map((m) => (
         <div
           key={m.id}
+          draggable
+          onDragStart={(e) => onMemoDragStart(e, m.id)}
           style={{
             borderRadius: 10,
             border: '1px solid #e0e0e0',
@@ -40,8 +38,6 @@ const MemoList: React.FC<Props> = ({
             flexDirection: 'column',
             gap: 6,
           }}
-          draggable
-          onDragStart={(e) => onMemoDragStart(e, m.id)}
         >
           <button
             onClick={() => onSelectMemo(m.id)}
@@ -91,12 +87,7 @@ const MemoList: React.FC<Props> = ({
               </span>
             </div>
 
-            <div
-              style={{
-                fontSize: 11,
-                color: '#999',
-              }}
-            >
+            <div style={{ fontSize: 11, color: '#999' }}>
               {m.content ? m.content.slice(0, 40) : '(内容なし)'}
               {m.content.length > 40 ? '…' : ''}
             </div>
@@ -123,6 +114,7 @@ const MemoList: React.FC<Props> = ({
             >
               📌
             </button>
+
             <button
               onClick={() => onTrash(m.id)}
               style={{

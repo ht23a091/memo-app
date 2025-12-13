@@ -26,11 +26,7 @@ const formatDateTime = (ts: number) => {
 
 const TrashList: React.FC<Props> = ({ items, onRestore, onDeleteForever }) => {
   if (items.length === 0) {
-    return (
-      <div style={{ fontSize: 12, color: '#777' }}>
-        ゴミ箱は空です
-      </div>
-    );
+    return <div style={{ fontSize: 12, color: '#777' }}>ゴミ箱は空です</div>;
   }
 
   return (
@@ -97,12 +93,7 @@ const TrashList: React.FC<Props> = ({ items, onRestore, onDeleteForever }) => {
             </span>
           </div>
 
-          <div
-            style={{
-              fontSize: 11,
-              color: '#999',
-            }}
-          >
+          <div style={{ fontSize: 11, color: '#999' }}>
             {m.content ? m.content.slice(0, 40) : '(内容なし)'}
             {m.content.length > 40 ? '…' : ''}
           </div>
@@ -128,6 +119,7 @@ const TrashList: React.FC<Props> = ({ items, onRestore, onDeleteForever }) => {
             >
               復元
             </button>
+
             <button
               onClick={() => onDeleteForever(m.id)}
               style={{
